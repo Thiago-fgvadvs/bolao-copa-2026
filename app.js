@@ -344,7 +344,7 @@ function App() {
         {screen === "grupos" && <Standings games={games} results={results} />}
         {screen === "cravada" && <Cravada cfg={cfg} games={games} cravadas={cravadas} addCravada={addCravada} removeCravada={removeCravada} computed={cravadaComputed} myCb={myCb} setCb={setCb} cbById={cbById} players={players} me={me} isLocked={isLocked} results={results} />}
         {screen === "ranking" && <Ranking ranking={ranking} cfg={cfg} />}
-        {screen === "config" && <Config cfg={cfg} saveCfg={saveCfg} games={games} renameGame={renameGame} />}
+        {screen === "config" && <Config cfg={cfg} saveCfg={saveCfg} games={games} renameGame={renameGame} me={me} />}
       </div>
 
       <div style={{ background: C.card, borderTop: "1px solid " + C.line }} className="fixed bottom-0 left-0 right-0 z-20">
@@ -668,14 +668,24 @@ function AoVivo({ games, results, guessesById, players, cravadas, cfg, isLocked,
 }
 
 // ---------- Config / Admin ----------
-function Config({ cfg, saveCfg, games, renameGame }) {
+function Config({ cfg, saveCfg, games, renameGame, me }) {
   const [local, setLocal] = useState(cfg);
   const [tab, setTab] = useState("pontos");
   useEffect(() => setLocal(cfg), [cfg]);
+  const isAdmin = ADMINS.includes(me);
+  const mataOpen = cfg.mataAbre && new Date(cfg.mataAbre).getTime() <= Date.now();
+  if (!isAdmin) return (<div style={{ background: C.card, border: "1px solid " + C.line }} className="rounded-xl p-3 text-sm"><p style={{ color: C.mut }}>⚙️ As regras (pontuação, jogos e abertura do mata-mata) são geridas pelos organizadores — Dr. Thiago e Eduardo.</p></div>);
   const NumRow = ({ k, lb, color }) => (<div className="flex items-center justify-between py-2" style={{ borderBottom: "1px solid " + C.line }}><span className="text-sm">{lb}</span><input type="number" min="0" value={local[k]} onChange={(e) => setLocal(Object.assign({}, local, { [k]: Math.max(0, parseInt(e.target.value) || 0) }))} style={{ background: C.bg, border: "1px solid " + C.line, color: color || C.txt, width: 64 }} className="text-center py-1.5 rounded-lg outline-none font-bold" /></div>);
   return (
     <div>
       <div className="flex gap-2 mb-3 overflow-x-auto pb-1">{[["pontos", "Pontuação"], ["jogos", "Jogos"]].map((e) => (<button key={e[0]} onClick={() => setTab(e[0])} style={{ background: tab === e[0] ? C.purple : C.card, color: tab === e[0] ? "#fff" : C.mut, border: "1px solid " + C.line }} className="px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap">{e[1]}</button>))}</div>
+      <div style={{ background: C.card, border: "1px solid " + (mataOpen ? C.green : C.line) }} className="rounded-xl p-3 mb-3">
+        <p className="text-sm font-semibold mb-1">Mata-mata</p>
+        <p className="text-xs mb-2" style={{ color: C.mut }}>Status: <b style={{ color: mataOpen ? C.green : C.gold }}>{mataOpen ? "ABERTO para palpites" : "fechado"}</b>. Abra só quando os confrontos estiverem definidos. Os times reais entram pela tarefa agendada ou na aba Jogos.</p>
+        {mataOpen
+          ? <button onClick={() => saveCfg(Object.assign({}, cfg, { mataAbre: null }))} style={{ background: C.card2, color: C.danger, border: "1px solid " + C.line }} className="w-full py-2 rounded-lg font-semibold active:opacity-80">🔒 Fechar mata-mata</button>
+          : <button onClick={() => saveCfg(Object.assign({}, cfg, { mataAbre: new Date().toISOString() }))} style={{ background: C.green, color: "#06281c" }} className="w-full py-2 rounded-lg font-semibold active:opacity-80">🔓 Abrir mata-mata agora</button>}
+      </div>
       {tab === "pontos" && (
         <div style={{ background: C.card, border: "1px solid " + C.line }} className="rounded-xl p-3">
           <NumRow k="pExact" lb="Placar exato" color={C.green} /><NumRow k="pDiff" lb="Vencedor + saldo" color={C.green} /><NumRow k="pWin" lb="Só o vencedor / empate" color={C.green} /><NumRow k="cravadaBase" lb="🎯 Valor base da Cravada" color={C.gold} />
