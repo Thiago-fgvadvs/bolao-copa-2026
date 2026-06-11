@@ -342,7 +342,7 @@ function App() {
         {screen === "jogos" && <Jogos games={games} myGuesses={myGuesses} setGuess={setGuess} isLocked={isLocked} results={results} cfg={cfg} />}
         {screen === "resultados" && <Resultados games={games} results={results} setResult={setResult} importResults={importResults} isAdmin={ADMINS.includes(me)} />}
         {screen === "grupos" && <Standings games={games} results={results} />}
-        {screen === "cravada" && <Cravada cfg={cfg} games={games} cravadas={cravadas} addCravada={addCravada} removeCravada={removeCravada} computed={cravadaComputed} myCb={myCb} setCb={setCb} cbById={cbById} players={players} me={me} isLocked={isLocked} results={results} />}
+        {screen === "cravada" && <Cravada cfg={cfg} games={games} cravadas={cravadas} addCravada={addCravada} removeCravada={removeCravada} computed={cravadaComputed} myCb={myCb} setCb={setCb} cbById={cbById} players={players} me={me} now={now} results={results} />}
         {screen === "ranking" && <Ranking ranking={ranking} cfg={cfg} />}
         {screen === "config" && <Config cfg={cfg} saveCfg={saveCfg} games={games} renameGame={renameGame} me={me} />}
       </div>
@@ -498,7 +498,8 @@ function Resultados({ games, results, setResult, importResults, isAdmin }) {
 }
 
 // ---------- Cravada ----------
-function Cravada({ cfg, games, cravadas, addCravada, removeCravada, computed, myCb, setCb, cbById, players, me, isLocked, results }) {
+function Cravada({ cfg, games, cravadas, addCravada, removeCravada, computed, myCb, setCb, cbById, players, me, now, results }) {
+  const isLocked = (g) => now >= new Date(g.dt).getTime(); // Cravada trava no apito do jogo dela
   const [adding, setAdding] = useState(false);
   const [selGame, setSelGame] = useState("");
   const [base, setBase] = useState(cfg.cravadaBase);
@@ -627,32 +628,33 @@ function Ranking({ ranking, cfg }) {
 function AoVivo({ games, results, guessesById, players, cravadas, cfg, isLocked, now }) {
   const sortedAsc = useMemo(() => games.slice().sort((a, b) => new Date(a.dt) - new Date(b.dt)), [games]);
   const focus = useMemo(() => {
-    const lockedUnresolved = sortedAsc.slice().reverse().find((g) => isLocked(g) && !hasResult(results[g.id]));
-    const nextUp = sortedAsc.find((g) => !isLocked(g));
-    return lockedUnresolved || nextUp || sortedAsc[sortedAsc.length - 1] || null;
-  }, [sortedAsc, results, isLocked]);
+    // Foca no jogo que JÁ COMEÇOU e ainda sem resultado (o mais recente); senão, no próximo a começar.
+    const startedUnresolved = sortedAsc.slice().reverse().find((g) => now >= new Date(g.dt).getTime() && !hasResult(results[g.id]));
+    const nextUp = sortedAsc.find((g) => now < new Date(g.dt).getTime());
+    return startedUnresolved || nextUp || sortedAsc[sortedAsc.length - 1] || null;
+  }, [sortedAsc, results, now]);
   if (!focus) return <p style={{ color: C.mut }} className="text-sm text-center py-6">Nenhum jogo cadastrado.</p>;
-  const locked = isLocked(focus); const res = results[focus.id]; const resolved = hasResult(res);
+  const started = now >= new Date(focus.dt).getTime(); const res = results[focus.id]; const resolved = hasResult(res);
   const ms = new Date(focus.dt).getTime() - now; const cr = cravadas.find((c) => c.gameId === focus.id);
   const fmtCd = (m) => { if (m <= 0) return "começando…"; const s = Math.floor(m / 1000), d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), mi = Math.floor((s % 3600) / 60); if (d > 0) return d + "d " + h + "h"; if (h > 0) return h + "h " + mi + "min"; return mi + "min"; };
-  const badge = resolved ? { t: "ENCERRADO", bg: C.card2, fg: C.mut } : (locked ? { t: "● AO VIVO", bg: C.danger, fg: "#fff" } : { t: "EM " + fmtCd(ms), bg: C.gold, fg: "#2b2100" });
+  const badge = resolved ? { t: "ENCERRADO", bg: C.card2, fg: C.mut } : (started ? { t: "● AO VIVO", bg: C.danger, fg: "#fff" } : { t: "EM " + fmtCd(ms), bg: C.gold, fg: "#2b2100" });
   const rows = players.map((p) => { const guess = (guessesById[p.id] || {})[focus.id]; const filled = guess && guess.h !== "" && guess.a !== ""; const sc = resolved ? scoreOf(guess, res, cfg) : null; return { p, guess, filled, sc }; }).sort((a, b) => (b.sc || 0) - (a.sc || 0) || a.p.name.localeCompare(b.p.name));
-  const nextUps = sortedAsc.filter((g) => !isLocked(g) && g.id !== focus.id).slice(0, 3);
+  const nextUps = sortedAsc.filter((g) => now < new Date(g.dt).getTime() && g.id !== focus.id).slice(0, 3);
   const lastDone = sortedAsc.slice().reverse().filter((g) => hasResult(results[g.id]) && g.id !== focus.id).slice(0, 3);
   return (
     <div>
-      <div style={{ background: "linear-gradient(135deg, " + C.card2 + ", " + C.card + ")", border: "1px solid " + (locked && !resolved ? C.danger : C.line) }} className="rounded-2xl p-4 mb-3">
+      <div style={{ background: "linear-gradient(135deg, " + C.card2 + ", " + C.card + ")", border: "1px solid " + (started && !resolved ? C.danger : C.line) }} className="rounded-2xl p-4 mb-3">
         <div className="flex items-center justify-between mb-3"><span className="text-xs" style={{ color: C.mut }}>{grpLabel(focus)} · {fmtDate(focus.dt)}{focus.venue ? " · " + focus.venue : ""}</span><span className="text-xs font-bold px-2 py-1 rounded-full" style={{ background: badge.bg, color: badge.fg }}>{badge.t}</span></div>
         <div className="grid items-center" style={{ gridTemplateColumns: "1fr auto 1fr" }}>
           <div className="text-center"><div className="text-4xl">{flag(focus.home)}</div><div className="text-sm mt-1 truncate">{focus.home}</div></div>
           <div className="px-3 text-center">{resolved ? <div className="text-3xl font-extrabold" style={{ color: C.gold }}>{res.h} <span style={{ color: C.mut }}>×</span> {res.a}</div> : <div className="text-2xl font-bold" style={{ color: C.mut }}>– × –</div>}</div>
           <div className="text-center"><div className="text-4xl">{flag(focus.away)}</div><div className="text-sm mt-1 truncate">{focus.away}</div></div>
         </div>
-        {!locked && <p className="text-center text-xs mt-3" style={{ color: C.mut }}>🔒 Os palpites de todos aparecem no apito inicial.</p>}
+        {!started && <p className="text-center text-xs mt-3" style={{ color: C.mut }}>🔒 Os palpites de todos aparecem no apito inicial.</p>}
       </div>
       {cr && <div style={{ background: "linear-gradient(135deg, " + C.gold + ", #e0a800)", color: "#2b2100" }} className="rounded-xl p-3 mb-3 text-center"><p className="text-xs font-bold">🪙 Este jogo tem CRAVADA valendo!</p></div>}
       <h3 className="font-bold text-sm mb-2" style={{ color: C.gold }}>📡 Palpites da galera</h3>
-      {!locked ? (
+      {!started ? (
         <div className="flex flex-wrap gap-1.5">{players.map((p) => { const b = (guessesById[p.id] || {})[focus.id]; const ok = b && b.h !== "" && b.a !== ""; return (<span key={p.id} style={{ background: C.card2, color: C.txt, border: "1px solid " + C.line }} className="text-xs px-2 py-1 rounded-full">{p.name}: {ok ? "••" : "—"}</span>); })}</div>
       ) : (
         <div className="space-y-1.5">{rows.map((row) => (<div key={row.p.id} style={{ background: C.card, border: "1px solid " + (row.sc > 0 ? C.green : C.line) }} className="rounded-lg px-3 py-2 flex items-center justify-between"><span className="text-sm truncate">{row.p.name}</span><div className="flex items-center gap-3 shrink-0"><span className="text-sm font-bold" style={{ color: row.filled ? C.txt : C.mut }}>{row.filled ? row.guess.h + " × " + row.guess.a : "não palpitou"}</span>{resolved && row.filled && <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: row.sc > 0 ? C.green : C.card2, color: row.sc > 0 ? "#06281c" : C.mut }}>{row.sc > 0 ? "+" + row.sc : "0"}</span>}</div></div>))}</div>
