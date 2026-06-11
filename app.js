@@ -11,8 +11,9 @@ const C = {
   txt: "#e8edf5", mut: "#8b96ab", green: "#00d97e", gold: "#ffcb05",
   blue: "#3b82f6", danger: "#ff5470", purple: "#9b6bff",
 };
-const DEFAULT_CFG = { pExact: 10, pDiff: 5, pWin: 3, cravadaBase: 10, unit: "R$" };
+const DEFAULT_CFG = { pExact: 10, pDiff: 5, pWin: 3, cravadaBase: 10, unit: "R$", deadlineGrupos: "2026-06-12T12:00:00-03:00", mataAbre: null, deadlineMata: null };
 
+const ADMINS = ["pl_thiago", "pl_eduardo"]; // quem pode lançar resultados (Dr. Thiago e Eduardo)
 const FLAGS = {
   "México":"🇲🇽","África do Sul":"🇿🇦","Coreia do Sul":"🇰🇷","República Tcheca":"🇨🇿","Canadá":"🇨🇦",
   "Bósnia-Herzegovina":"🇧🇦","Catar":"🇶🇦","Suíça":"🇨🇭","Estados Unidos":"🇺🇸","Paraguai":"🇵🇾",
@@ -183,7 +184,17 @@ function App() {
     return () => { try { sb.removeChannel(ch); } catch (e) {} clearInterval(poll); };
   }, [scheduleReload, loadAll]);
 
-  const isLocked = useCallback((game) => now >= new Date(game.dt).getTime(), [now]);
+  const isLocked = useCallback((game) => {
+    if (game.round <= 3) { // fase de grupos: prazo único (trava todos juntos)
+      const dl = cfg.deadlineGrupos ? new Date(cfg.deadlineGrupos).getTime() : new Date(game.dt).getTime();
+      return now >= dl;
+    }
+    // mata-mata: fica TRAVADO até abrir (fim da fase de grupos, com confrontos reais);
+    // depois de aberto, fecha no prazo do mata-mata (deadlineMata) ou no apito de cada jogo.
+    if (!cfg.mataAbre || now < new Date(cfg.mataAbre).getTime()) return true; // ainda não abriu
+    const dlm = cfg.deadlineMata ? new Date(cfg.deadlineMata).getTime() : null;
+    return now >= (dlm != null ? dlm : new Date(game.dt).getTime());
+  }, [now, cfg.deadlineGrupos, cfg.mataAbre, cfg.deadlineMata]);
   const myGuesses = me ? (guessesById[me] || {}) : {};
   const myCb = me ? (cbById[me] || {}) : {};
 
@@ -329,7 +340,7 @@ function App() {
       <div className="p-3 pb-24 max-w-2xl mx-auto">
         {screen === "aovivo" && <AoVivo games={games} results={results} guessesById={guessesById} players={players} cravadas={cravadas} cfg={cfg} isLocked={isLocked} now={now} />}
         {screen === "jogos" && <Jogos games={games} myGuesses={myGuesses} setGuess={setGuess} isLocked={isLocked} results={results} cfg={cfg} />}
-        {screen === "resultados" && <Resultados games={games} results={results} setResult={setResult} importResults={importResults} />}
+        {screen === "resultados" && <Resultados games={games} results={results} setResult={setResult} importResults={importResults} isAdmin={ADMINS.includes(me)} />}
         {screen === "grupos" && <Standings games={games} results={results} />}
         {screen === "cravada" && <Cravada cfg={cfg} games={games} cravadas={cravadas} addCravada={addCravada} removeCravada={removeCravada} computed={cravadaComputed} myCb={myCb} setCb={setCb} cbById={cbById} players={players} me={me} isLocked={isLocked} results={results} />}
         {screen === "ranking" && <Ranking ranking={ranking} cfg={cfg} />}
@@ -420,6 +431,7 @@ function Jogos({ games, myGuesses, setGuess, isLocked, results, cfg }) {
       <div style={{ background: C.card2, border: "1px solid " + C.line }} className="rounded-lg p-2.5 mb-3 text-xs flex flex-wrap gap-x-3 gap-y-1">
         <span style={{ color: C.mut }}>Pontos:</span><span><b style={{ color: C.green }}>{cfg.pExact}</b> placar exato</span><span><b style={{ color: C.green }}>{cfg.pDiff}</b> vencedor + saldo</span><span><b style={{ color: C.green }}>{cfg.pWin}</b> só vencedor</span>
       </div>
+      {cfg.deadlineGrupos && <div style={{ background: "rgba(255,84,112,0.12)", border: "1px solid " + C.danger }} className="rounded-lg p-2.5 mb-3 text-xs"><p style={{ color: C.txt }}>⏰ Prazo da <b>fase de grupos</b>: preencha todos os palpites até <b>{fmtDate(cfg.deadlineGrupos)}</b>. Depois disso, os jogos de grupo travam de uma vez. O mata-mata é preenchido quando os confrontos saírem.</p></div>}
       {grouped.map((entry) => {
         const round = entry[0], list = entry[1], isC = collapsed[round];
         return (
@@ -450,7 +462,7 @@ function GameRow({ g, guess, setGuess, locked, result, cfg }) {
 }
 
 // ---------- Resultados ----------
-function Resultados({ games, results, setResult, importResults }) {
+function Resultados({ games, results, setResult, importResults, isAdmin }) {
   const [filter, setFilter] = useState("todos");
   const [msg, setMsg] = useState(""); const [busy, setBusy] = useState(false);
   const list = useMemo(() => {
@@ -463,10 +475,10 @@ function Resultados({ games, results, setResult, importResults }) {
   const Pill = ({ k, lb }) => (<button onClick={() => setFilter(k)} style={{ background: filter === k ? C.blue : C.card, color: filter === k ? "#fff" : C.mut, border: "1px solid " + C.line }} className="px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap active:opacity-70">{lb}</button>);
   return (
     <div>
-      <div style={{ background: C.card2, border: "1px solid " + C.line }} className="rounded-lg p-3 mb-3 text-xs"><p style={{ color: C.mut }}>Qualquer um lança o placar oficial quando o jogo acaba — propaga para todos em tempo real. Ranking, Grupos e Cravada recalculam sozinhos.</p></div>
-      <button onClick={doImport} disabled={busy} style={{ background: C.purple, color: "#fff", opacity: busy ? 0.6 : 1 }} className="w-full py-2.5 rounded-lg font-semibold mb-2 active:opacity-80">{busy ? "Buscando…" : "🌐 Importar placares da internet (fase de grupos)"}</button>
-      {msg && <p className="text-xs mb-2" style={{ color: C.green }}>{msg}</p>}
-      <p className="text-xs mb-3" style={{ color: C.mut }}>A importação é best-effort (fonte gratuita openfootball) e pode atrasar; o mata-mata e o que faltar você lança à mão.</p>
+      <div style={{ background: C.card2, border: "1px solid " + C.line }} className="rounded-lg p-3 mb-3 text-xs"><p style={{ color: C.mut }}>{isAdmin ? "Você pode lançar os placares oficiais. Ao salvar, propaga para todos em tempo real e recalcula ranking, grupos e Cravada." : "🔒 Somente Dr. Thiago e Eduardo lançam os placares oficiais. Aqui você acompanha os resultados."}</p></div>
+      {isAdmin && <button onClick={doImport} disabled={busy} style={{ background: C.purple, color: "#fff", opacity: busy ? 0.6 : 1 }} className="w-full py-2.5 rounded-lg font-semibold mb-2 active:opacity-80">{busy ? "Buscando…" : "🌐 Importar placares da internet (fase de grupos)"}</button>}
+      {isAdmin && msg && <p className="text-xs mb-2" style={{ color: C.green }}>{msg}</p>}
+      {isAdmin && <p className="text-xs mb-3" style={{ color: C.mut }}>A importação é best-effort (fonte gratuita openfootball) e pode atrasar; o mata-mata e o que faltar você lança à mão.</p>}
       <div className="flex gap-2 overflow-x-auto pb-2 mb-2"><Pill k="todos" lb="Todos" /><Pill k="pendentes" lb="Sem placar" /><Pill k="lancados" lb="Já lançados" /></div>
       {list.map((g) => {
         const r = results[g.id] || { h: "", a: "" }; const done = hasResult(r);
@@ -475,7 +487,7 @@ function Resultados({ games, results, setResult, importResults }) {
             <div className="flex items-center justify-between mb-2"><span className="text-xs" style={{ color: C.mut }}>{grpLabel(g)} · {fmtDate(g.dt)}</span>{done && <span style={{ color: C.green }}>✓</span>}</div>
             <div className="grid items-center" style={{ gridTemplateColumns: "1fr auto 1fr" }}>
               <div className="flex items-center gap-1.5 min-w-0"><span className="text-xl">{flag(g.home)}</span><span className="text-sm truncate">{g.home}</span></div>
-              <div className="flex items-center gap-1.5 px-2"><ScoreInput value={r.h} onChange={(v) => setResult(g.id, "h", v)} /><span style={{ color: C.mut }}>×</span><ScoreInput value={r.a} onChange={(v) => setResult(g.id, "a", v)} /></div>
+              <div className="flex items-center gap-1.5 px-2"><ScoreInput value={r.h} onChange={(v) => setResult(g.id, "h", v)} disabled={!isAdmin} /><span style={{ color: C.mut }}>×</span><ScoreInput value={r.a} onChange={(v) => setResult(g.id, "a", v)} disabled={!isAdmin} /></div>
               <div className="flex items-center gap-1.5 min-w-0 justify-end"><span className="text-sm truncate text-right">{g.away}</span><span className="text-xl">{flag(g.away)}</span></div>
             </div>
           </div>
