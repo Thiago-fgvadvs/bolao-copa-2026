@@ -340,7 +340,7 @@ function App() {
       <div className="p-3 pb-24 max-w-2xl mx-auto">
         {screen === "aovivo" && <AoVivo games={games} results={results} guessesById={guessesById} players={players} cravadas={cravadas} cfg={cfg} isLocked={isLocked} now={now} />}
         {screen === "jogos" && <Jogos games={games} myGuesses={myGuesses} setGuess={setGuess} isLocked={isLocked} results={results} cfg={cfg} />}
-        {screen === "resultados" && <Resultados games={games} results={results} setResult={setResult} importResults={importResults} isAdmin={ADMINS.includes(me)} />}
+        {screen === "resultados" && <Resultados games={games} results={results} setResult={setResult} importResults={importResults} isAdmin={ADMINS.includes(me)} players={players} guessesById={guessesById} cfg={cfg} now={now} />}
         {screen === "grupos" && <Standings games={games} results={results} />}
         {screen === "cravada" && <Cravada cfg={cfg} games={games} cravadas={cravadas} addCravada={addCravada} removeCravada={removeCravada} computed={cravadaComputed} myCb={myCb} setCb={setCb} cbById={cbById} players={players} me={me} now={now} results={results} />}
         {screen === "ranking" && <Ranking ranking={ranking} cfg={cfg} />}
@@ -462,9 +462,10 @@ function GameRow({ g, guess, setGuess, locked, result, cfg }) {
 }
 
 // ---------- Resultados ----------
-function Resultados({ games, results, setResult, importResults, isAdmin }) {
+function Resultados({ games, results, setResult, importResults, isAdmin, players, guessesById, cfg, now }) {
   const [filter, setFilter] = useState("todos");
   const [msg, setMsg] = useState(""); const [busy, setBusy] = useState(false);
+  const [openG, setOpenG] = useState({});
   const list = useMemo(() => {
     let gs = games.slice();
     if (filter === "pendentes") gs = gs.filter((g) => !hasResult(results[g.id]));
@@ -490,6 +491,12 @@ function Resultados({ games, results, setResult, importResults, isAdmin }) {
               <div className="flex items-center gap-1.5 px-2"><ScoreInput value={r.h} onChange={(v) => setResult(g.id, "h", v)} disabled={!isAdmin} /><span style={{ color: C.mut }}>×</span><ScoreInput value={r.a} onChange={(v) => setResult(g.id, "a", v)} disabled={!isAdmin} /></div>
               <div className="flex items-center gap-1.5 min-w-0 justify-end"><span className="text-sm truncate text-right">{g.away}</span><span className="text-xl">{flag(g.away)}</span></div>
             </div>
+            {now >= new Date(g.dt).getTime() && (
+              <div className="mt-2 pt-2" style={{ borderTop: "1px solid " + C.line }}>
+                <button onClick={() => setOpenG((o) => Object.assign({}, o, { [g.id]: !o[g.id] }))} className="text-xs font-medium" style={{ color: C.blue }}>👥 {openG[g.id] ? "ocultar" : "ver"} palpites de todos</button>
+                {openG[g.id] && <div className="mt-2 flex flex-wrap gap-1.5">{players.map((p) => { const gg = (guessesById[p.id] || {})[g.id]; const filled = gg && gg.h !== "" && gg.a !== ""; const sc = hasResult(r) ? scoreOf(gg, r, cfg) : null; const ex = isExact(gg, r); return (<span key={p.id} style={{ background: sc > 0 ? C.green : C.card2, color: sc > 0 ? "#06281c" : C.txt, border: "1px solid " + C.line }} className="text-xs px-2 py-1 rounded-full">{p.name}: {filled ? gg.h + "×" + gg.a : "—"}{ex ? " 🎯" : (sc > 0 ? " ✓" : "")}</span>); })}</div>}
+              </div>
+            )}
           </div>
         );
       })}
