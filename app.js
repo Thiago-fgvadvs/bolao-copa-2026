@@ -184,17 +184,19 @@ function App() {
     return () => { try { sb.removeChannel(ch); } catch (e) {} clearInterval(poll); };
   }, [scheduleReload, loadAll]);
 
+  const meConfirmed = !!((players.find((p) => p.id === me) || {}).grupos_confirmado);
   const isLocked = useCallback((game) => {
-    if (game.round <= 3) { // fase de grupos: prazo único (trava todos juntos)
+    if (game.round <= 3) { // fase de grupos: prazo único OU confirmação individual do participante
       const dl = cfg.deadlineGrupos ? new Date(cfg.deadlineGrupos).getTime() : new Date(game.dt).getTime();
-      return now >= dl;
+      return now >= dl || meConfirmed;
     }
     // mata-mata: fica TRAVADO até abrir (fim da fase de grupos, com confrontos reais);
     // depois de aberto, fecha no prazo do mata-mata (deadlineMata) ou no apito de cada jogo.
     if (!cfg.mataAbre || now < new Date(cfg.mataAbre).getTime()) return true; // ainda não abriu
     const dlm = cfg.deadlineMata ? new Date(cfg.deadlineMata).getTime() : null;
     return now >= (dlm != null ? dlm : new Date(game.dt).getTime());
-  }, [now, cfg.deadlineGrupos, cfg.mataAbre, cfg.deadlineMata]);
+  }, [now, cfg.deadlineGrupos, cfg.mataAbre, cfg.deadlineMata, meConfirmed]);
+  const confirmGrupos = async () => { if (!me || !sb) return; await sb.from("players").update({ grupos_confirmado: true }).eq("id", me); await loadAll(); };
   const myGuesses = me ? (guessesById[me] || {}) : {};
   const myCb = me ? (cbById[me] || {}) : {};
 
@@ -339,7 +341,7 @@ function App() {
 
       <div className="p-3 pb-24 max-w-2xl mx-auto">
         {screen === "aovivo" && <AoVivo games={games} results={results} guessesById={guessesById} players={players} cravadas={cravadas} cfg={cfg} isLocked={isLocked} now={now} />}
-        {screen === "jogos" && <Jogos games={games} myGuesses={myGuesses} setGuess={setGuess} isLocked={isLocked} results={results} cfg={cfg} />}
+        {screen === "jogos" && <Jogos games={games} myGuesses={myGuesses} setGuess={setGuess} isLocked={isLocked} results={results} cfg={cfg} now={now} meConfirmed={meConfirmed} confirmGrupos={confirmGrupos} />}
         {screen === "resultados" && <Resultados games={games} results={results} setResult={setResult} importResults={importResults} isAdmin={ADMINS.includes(me)} players={players} guessesById={guessesById} cfg={cfg} now={now} />}
         {screen === "grupos" && <Standings games={games} results={results} />}
         {screen === "cravada" && <Cravada cfg={cfg} games={games} cravadas={cravadas} addCravada={addCravada} removeCravada={removeCravada} computed={cravadaComputed} myCb={myCb} setCb={setCb} cbById={cbById} players={players} me={me} now={now} results={results} />}
@@ -413,9 +415,12 @@ function ScoreInput({ value, onChange, disabled }) {
 }
 
 // ---------- Palpites ----------
-function Jogos({ games, myGuesses, setGuess, isLocked, results, cfg }) {
+function Jogos({ games, myGuesses, setGuess, isLocked, results, cfg, now, meConfirmed, confirmGrupos }) {
   const [filter, setFilter] = useState("todos");
   const [collapsed, setCollapsed] = useState({});
+  const pastDeadline = cfg.deadlineGrupos && now >= new Date(cfg.deadlineGrupos).getTime();
+  const faltamGrupo = games.filter((g) => g.round <= 3 && !(myGuesses[g.id] && myGuesses[g.id].h !== "" && myGuesses[g.id].a !== "")).length;
+  const doConfirm = () => { if (typeof window !== "undefined" && window.confirm && !window.confirm(faltamGrupo > 0 ? "Você ainda tem " + faltamGrupo + " jogo(s) de grupo sem palpite. Confirmar e travar mesmo assim? Não dá para alterar depois." : "Confirmar e travar seus palpites da fase de grupos? Não dá para alterar depois.")) return; confirmGrupos(); };
   const filtered = useMemo(() => {
     let gs = games;
     if (filter === "brasil") gs = gs.filter((g) => g.home === "Brasil" || g.away === "Brasil");
@@ -432,6 +437,9 @@ function Jogos({ games, myGuesses, setGuess, isLocked, results, cfg }) {
         <span style={{ color: C.mut }}>Pontos:</span><span><b style={{ color: C.green }}>{cfg.pExact}</b> placar exato</span><span><b style={{ color: C.green }}>{cfg.pDiff}</b> vencedor + saldo</span><span><b style={{ color: C.green }}>{cfg.pWin}</b> só vencedor</span>
       </div>
       {cfg.deadlineGrupos && <div style={{ background: "rgba(255,84,112,0.12)", border: "1px solid " + C.danger }} className="rounded-lg p-2.5 mb-3 text-xs"><p style={{ color: C.txt }}>⏰ Prazo da <b>fase de grupos</b>: preencha todos os palpites até <b>{fmtDate(cfg.deadlineGrupos)}</b>. Depois disso, os jogos de grupo travam de uma vez. O mata-mata é preenchido quando os confrontos saírem.</p></div>}
+      {!pastDeadline && (meConfirmed
+        ? <div style={{ background: "rgba(0,217,126,0.12)", border: "1px solid " + C.green }} className="rounded-lg p-2.5 mb-3 text-xs"><p style={{ color: C.txt }}>🔒 Seus palpites da fase de grupos estão <b>confirmados e travados</b>. Não é possível alterar.</p></div>
+        : <div style={{ background: C.card2, border: "1px solid " + C.gold }} className="rounded-lg p-2.5 mb-3"><p className="text-xs mb-2" style={{ color: C.mut }}>Terminou de palpitar? Confirme para travar de vez (não dá para mudar depois). {faltamGrupo > 0 ? "Faltam " + faltamGrupo + " jogo(s) de grupo sem palpite." : "Todos os jogos de grupo preenchidos."}</p><button onClick={doConfirm} style={{ background: C.green, color: "#06281c" }} className="w-full py-2 rounded-lg font-semibold active:opacity-80">✅ Confirmar e travar meus palpites</button></div>)}
       {grouped.map((entry) => {
         const round = entry[0], list = entry[1], isC = collapsed[round];
         return (
