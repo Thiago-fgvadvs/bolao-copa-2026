@@ -11,7 +11,7 @@ const C = {
   txt: "#e8edf5", mut: "#8b96ab", green: "#00d97e", gold: "#ffcb05",
   blue: "#3b82f6", danger: "#ff5470", purple: "#9b6bff",
 };
-const DEFAULT_CFG = { pExact: 10, pDiff: 5, pWin: 3, cravadaBase: 10, unit: "R$", deadlineGrupos: "2026-06-12T12:00:00-03:00", mataAbre: null, deadlineMata: null };
+const DEFAULT_CFG = { pExact: 10, pDiff: 5, pWin: 3, cravadaBase: 10, unit: "R$", gruposTravado: false, mataAbre: null, deadlineMata: null };
 
 const ADMINS = ["pl_thiago", "pl_eduardo"]; // quem pode lançar resultados (Dr. Thiago e Eduardo)
 const FLAGS = {
@@ -186,16 +186,15 @@ function App() {
 
   const meConfirmed = !!((players.find((p) => p.id === me) || {}).grupos_confirmado);
   const isLocked = useCallback((game) => {
-    if (game.round <= 3) { // fase de grupos: prazo único OU confirmação individual do participante
-      const dl = cfg.deadlineGrupos ? new Date(cfg.deadlineGrupos).getTime() : new Date(game.dt).getTime();
-      return now >= dl || meConfirmed;
+    if (game.round <= 3) { // fase de grupos: trava no apito do jogo OU trava global (organizadores) OU confirmação individual
+      return now >= new Date(game.dt).getTime() || !!cfg.gruposTravado || meConfirmed;
     }
     // mata-mata: fica TRAVADO até abrir (fim da fase de grupos, com confrontos reais);
     // depois de aberto, fecha no prazo do mata-mata (deadlineMata) ou no apito de cada jogo.
     if (!cfg.mataAbre || now < new Date(cfg.mataAbre).getTime()) return true; // ainda não abriu
     const dlm = cfg.deadlineMata ? new Date(cfg.deadlineMata).getTime() : null;
     return now >= (dlm != null ? dlm : new Date(game.dt).getTime());
-  }, [now, cfg.deadlineGrupos, cfg.mataAbre, cfg.deadlineMata, meConfirmed]);
+  }, [now, cfg.gruposTravado, cfg.mataAbre, cfg.deadlineMata, meConfirmed]);
   const confirmGrupos = async () => { if (!me || !sb) return; await sb.from("players").update({ grupos_confirmado: true }).eq("id", me); await loadAll(); };
   const myGuesses = me ? (guessesById[me] || {}) : {};
   const myCb = me ? (cbById[me] || {}) : {};
@@ -418,7 +417,7 @@ function ScoreInput({ value, onChange, disabled }) {
 function Jogos({ games, myGuesses, setGuess, isLocked, results, cfg, now, meConfirmed, confirmGrupos }) {
   const [filter, setFilter] = useState("todos");
   const [collapsed, setCollapsed] = useState({});
-  const pastDeadline = cfg.deadlineGrupos && now >= new Date(cfg.deadlineGrupos).getTime();
+  const gTravado = !!cfg.gruposTravado;
   const faltamGrupo = games.filter((g) => g.round <= 3 && !(myGuesses[g.id] && myGuesses[g.id].h !== "" && myGuesses[g.id].a !== "")).length;
   const doConfirm = () => { if (typeof window !== "undefined" && window.confirm && !window.confirm(faltamGrupo > 0 ? "Você ainda tem " + faltamGrupo + " jogo(s) de grupo sem palpite. Confirmar e travar mesmo assim? Não dá para alterar depois." : "Confirmar e travar seus palpites da fase de grupos? Não dá para alterar depois.")) return; confirmGrupos(); };
   const filtered = useMemo(() => {
@@ -436,8 +435,8 @@ function Jogos({ games, myGuesses, setGuess, isLocked, results, cfg, now, meConf
       <div style={{ background: C.card2, border: "1px solid " + C.line }} className="rounded-lg p-2.5 mb-3 text-xs flex flex-wrap gap-x-3 gap-y-1">
         <span style={{ color: C.mut }}>Pontos:</span><span><b style={{ color: C.green }}>{cfg.pExact}</b> placar exato</span><span><b style={{ color: C.green }}>{cfg.pDiff}</b> vencedor + saldo</span><span><b style={{ color: C.green }}>{cfg.pWin}</b> só vencedor</span>
       </div>
-      {cfg.deadlineGrupos && <div style={{ background: "rgba(255,84,112,0.12)", border: "1px solid " + C.danger }} className="rounded-lg p-2.5 mb-3 text-xs"><p style={{ color: C.txt }}>⏰ Prazo da <b>fase de grupos</b>: preencha todos os palpites até <b>{fmtDate(cfg.deadlineGrupos)}</b>. Depois disso, os jogos de grupo travam de uma vez. O mata-mata é preenchido quando os confrontos saírem.</p></div>}
-      {!pastDeadline && (meConfirmed
+      <div style={{ background: gTravado ? "rgba(255,84,112,0.12)" : C.card2, border: "1px solid " + (gTravado ? C.danger : C.line) }} className="rounded-lg p-2.5 mb-3 text-xs"><p style={{ color: C.txt }}>{gTravado ? "🔒 Os palpites da fase de grupos foram travados pelos organizadores — ninguém altera mais." : "Palpites abertos. Cada jogo trava sozinho no apito; os organizadores travam tudo quando todos terminarem. O mata-mata entra quando os confrontos saírem."}</p></div>
+      {!gTravado && (meConfirmed
         ? <div style={{ background: "rgba(0,217,126,0.12)", border: "1px solid " + C.green }} className="rounded-lg p-2.5 mb-3 text-xs"><p style={{ color: C.txt }}>🔒 Seus palpites da fase de grupos estão <b>confirmados e travados</b>. Não é possível alterar.</p></div>
         : <div style={{ background: C.card2, border: "1px solid " + C.gold }} className="rounded-lg p-2.5 mb-3"><p className="text-xs mb-2" style={{ color: C.mut }}>Terminou de palpitar? Confirme para travar de vez (não dá para mudar depois). {faltamGrupo > 0 ? "Faltam " + faltamGrupo + " jogo(s) de grupo sem palpite." : "Todos os jogos de grupo preenchidos."}</p><button onClick={doConfirm} style={{ background: C.green, color: "#06281c" }} className="w-full py-2 rounded-lg font-semibold active:opacity-80">✅ Confirmar e travar meus palpites</button></div>)}
       {grouped.map((entry) => {
@@ -692,6 +691,13 @@ function Config({ cfg, saveCfg, games, renameGame, me }) {
   return (
     <div>
       <div className="flex gap-2 mb-3 overflow-x-auto pb-1">{[["pontos", "Pontuação"], ["jogos", "Jogos"]].map((e) => (<button key={e[0]} onClick={() => setTab(e[0])} style={{ background: tab === e[0] ? C.purple : C.card, color: tab === e[0] ? "#fff" : C.mut, border: "1px solid " + C.line }} className="px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap">{e[1]}</button>))}</div>
+      <div style={{ background: C.card, border: "1px solid " + (cfg.gruposTravado ? C.danger : C.green) }} className="rounded-xl p-3 mb-3">
+        <p className="text-sm font-semibold mb-1">Palpites — Fase de grupos</p>
+        <p className="text-xs mb-2" style={{ color: C.mut }}>Status: <b style={{ color: cfg.gruposTravado ? C.danger : C.green }}>{cfg.gruposTravado ? "TRAVADOS" : "abertos"}</b>. Cada jogo também trava sozinho no seu apito. Trave tudo quando todos terminarem de palpitar (não há mais data fixa).</p>
+        {cfg.gruposTravado
+          ? <button onClick={() => saveCfg(Object.assign({}, cfg, { gruposTravado: false }))} style={{ background: C.green, color: "#06281c" }} className="w-full py-2 rounded-lg font-semibold active:opacity-80">🔓 Reabrir palpites da fase de grupos</button>
+          : <button onClick={() => { if (typeof window !== "undefined" && window.confirm && !window.confirm("Travar os palpites da fase de grupos para TODOS? Ninguém poderá mais alterar (jogos já iniciados continuam travados de qualquer forma).")) return; saveCfg(Object.assign({}, cfg, { gruposTravado: true })); }} style={{ background: C.danger, color: "#fff" }} className="w-full py-2 rounded-lg font-semibold active:opacity-80">🔒 Travar palpites de todos (fase de grupos)</button>}
+      </div>
       <div style={{ background: C.card, border: "1px solid " + (mataOpen ? C.green : C.line) }} className="rounded-xl p-3 mb-3">
         <p className="text-sm font-semibold mb-1">Mata-mata</p>
         <p className="text-xs mb-2" style={{ color: C.mut }}>Status: <b style={{ color: mataOpen ? C.green : C.gold }}>{mataOpen ? "ABERTO para palpites" : "fechado"}</b>. Abra só quando os confrontos estiverem definidos. Os times reais entram pela tarefa agendada ou na aba Jogos.</p>
