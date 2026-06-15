@@ -186,8 +186,8 @@ function App() {
 
   const meConfirmed = !!((players.find((p) => p.id === me) || {}).grupos_confirmado);
   const isLocked = useCallback((game) => {
-    if (game.round <= 3) { // fase de grupos: trava no apito do jogo OU trava global (organizadores) OU confirmação individual
-      return now >= new Date(game.dt).getTime() || !!cfg.gruposTravado || meConfirmed;
+    if (game.round <= 3) { // fase de grupos: ABERTO até a trava global (organizadores) ou a confirmação individual
+      return !!cfg.gruposTravado || meConfirmed;
     }
     // mata-mata: fica TRAVADO até abrir (fim da fase de grupos, com confrontos reais);
     // depois de aberto, fecha no prazo do mata-mata (deadlineMata) ou no apito de cada jogo.
