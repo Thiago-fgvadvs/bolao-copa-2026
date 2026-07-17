@@ -11,7 +11,7 @@ const C = {
   txt: "#e8edf5", mut: "#8b96ab", green: "#00d97e", gold: "#ffcb05",
   blue: "#3b82f6", danger: "#ff5470", purple: "#9b6bff",
 };
-const DEFAULT_CFG = { pExact: 10, pDiff: 5, pWin: 3, cravadaBase: 10, unit: "R$", gruposTravado: false, mataAbre: null, deadlineMata: null };
+const DEFAULT_CFG = { pExact: 10, pDiff: 5, pWin: 3, cravadaBase: 10, unit: "R$", gruposTravado: false, mataAbre: null, deadlineMata: null, pesoFinal: 1 };
 
 const ADMINS = ["pl_thiago", "pl_eduardo"]; // quem pode lançar resultados (Dr. Thiago e Eduardo)
 const FLAGS = {
@@ -53,6 +53,11 @@ function scoreOf(guess, result, cfg) {
   if (go === ro) return (Gh - Ga) === (Rh - Ra) ? cfg.pDiff : cfg.pWin;
   return 0;
 }
+// Peso extra dos jogos finais: rodada 8 = Disputa de 3º Lugar, rodada 9 = Final.
+const FINAL_ROUNDS = [8, 9];
+const finalMult = (round, cfg) => (FINAL_ROUNDS.indexOf(round) >= 0 ? (Number(cfg && cfg.pesoFinal) || 1) : 1);
+// Pontua já aplicando o multiplicador da fase final (preserva null quando não há como pontuar).
+const scoreG = (guess, result, cfg, round) => { const s = scoreOf(guess, result, cfg); return s == null ? null : s * finalMult(round, cfg); };
 const hasResult = (r) => r && r.h !== "" && r.a !== "" && r.h != null && r.a != null && !isNaN(Number(r.h)) && !isNaN(Number(r.a));
 const isExact = (b, r) => b && hasResult(r) && b.h !== "" && b.a !== "" && b.h != null && b.a != null && Number(b.h) === Number(r.h) && Number(b.a) === Number(r.a);
 function fmtDate(iso) {
@@ -301,7 +306,7 @@ function App() {
         const guess = gs[game.id];
         if (guess && (guess.h !== "" || guess.a !== "")) palpites++;
         const res = results[game.id]; if (!hasResult(res)) return;
-        const sc = scoreOf(guess, res, cfg); if (sc == null) return; total += sc; if (isExact(guess, res)) exatos++;
+        const sc = scoreG(guess, res, cfg, game.round); if (sc == null) return; total += sc; if (isExact(guess, res)) exatos++;
       });
       const cw = winMap[p.id] || { wins: 0, total: 0 };
       return Object.assign({}, p, { total, exatos, palpites, cravadaWins: cw.wins, cravadaTotal: cw.total });
@@ -429,7 +434,7 @@ function Jogos({ games, myGuesses, setGuess, isLocked, results, cfg, now }) {
     <div>
       <div className="flex gap-2 overflow-x-auto pb-2 mb-1"><Pill k="todos" lb="Todos" /><Pill k="abertos" lb="Em aberto" /><Pill k="brasil" lb="🇧🇷 Brasil" /><Pill k="mata" lb="Mata-mata" /></div>
       <div style={{ background: C.card2, border: "1px solid " + C.line }} className="rounded-lg p-2.5 mb-3 text-xs flex flex-wrap gap-x-3 gap-y-1">
-        <span style={{ color: C.mut }}>Pontos:</span><span><b style={{ color: C.green }}>{cfg.pExact}</b> placar exato</span><span><b style={{ color: C.green }}>{cfg.pDiff}</b> vencedor + saldo</span><span><b style={{ color: C.green }}>{cfg.pWin}</b> só vencedor</span>
+        <span style={{ color: C.mut }}>Pontos:</span><span><b style={{ color: C.green }}>{cfg.pExact}</b> placar exato</span><span><b style={{ color: C.green }}>{cfg.pDiff}</b> vencedor + saldo</span><span><b style={{ color: C.green }}>{cfg.pWin}</b> só vencedor</span>{(Number(cfg.pesoFinal) || 1) > 1 && <span style={{ color: C.gold }}>🔥 <b>Final e 3º lugar valem {cfg.pesoFinal}×</b> — placar exato = {cfg.pExact * cfg.pesoFinal} pts</span>}
       </div>
       <div style={{ background: gTravado ? "rgba(255,84,112,0.12)" : C.card2, border: "1px solid " + (gTravado ? C.danger : C.line) }} className="rounded-lg p-2.5 mb-3 text-xs"><p style={{ color: C.txt }}>{gTravado ? "🔒 Os palpites da fase de grupos foram travados pelos organizadores — ninguém altera mais." : "Palpites abertos. Você pode alterar à vontade até os organizadores (Dr. Thiago / Eduardo) travarem tudo de uma vez. Cada jogo trava sozinho no apito; o mata-mata entra quando os confrontos saírem."}</p></div>
       {grouped.map((entry) => {
@@ -447,10 +452,10 @@ function Jogos({ games, myGuesses, setGuess, isLocked, results, cfg, now }) {
   );
 }
 function GameRow({ g, guess, setGuess, locked, result, cfg }) {
-  const gv = guess || { h: "", a: "" }; const resolved = hasResult(result); const sc = resolved ? scoreOf(gv, result, cfg) : null;
+  const gv = guess || { h: "", a: "" }; const resolved = hasResult(result); const sc = resolved ? scoreG(gv, result, cfg, g.round) : null; const mult = finalMult(g.round, cfg);
   return (
-    <div style={{ background: C.card, border: "1px solid " + C.line, borderRadius: 12 }} className="p-3 mb-2">
-      <div className="flex items-center justify-between mb-2"><span className="text-xs" style={{ color: C.mut }}>{grpLabel(g)} · {fmtDate(g.dt)}</span>{locked && <span className="text-xs" style={{ color: C.danger }}>🔒 fechado</span>}</div>
+    <div style={{ background: C.card, border: "1px solid " + (mult > 1 ? C.gold : C.line), borderRadius: 12 }} className="p-3 mb-2">
+      <div className="flex items-center justify-between mb-2"><span className="text-xs" style={{ color: C.mut }}>{grpLabel(g)} · {fmtDate(g.dt)}</span><span className="flex items-center gap-2">{mult > 1 && <span className="text-xs font-bold" style={{ color: C.gold }}>🔥 vale {mult}×</span>}{locked && <span className="text-xs" style={{ color: C.danger }}>🔒 fechado</span>}</span></div>
       <div className="grid items-center" style={{ gridTemplateColumns: "1fr auto 1fr" }}>
         <div className="flex items-center gap-1.5 min-w-0"><span className="text-xl">{flag(g.home)}</span><span className="text-sm truncate">{g.home}</span></div>
         <div className="flex items-center gap-1.5 px-2"><ScoreInput value={gv.h} onChange={(v) => setGuess(g.id, "h", v)} disabled={locked} /><span style={{ color: C.mut }}>×</span><ScoreInput value={gv.a} onChange={(v) => setGuess(g.id, "a", v)} disabled={locked} /></div>
@@ -494,7 +499,7 @@ function Resultados({ games, results, setResult, importResults, isAdmin, players
             {now >= new Date(g.dt).getTime() && (
               <div className="mt-2 pt-2" style={{ borderTop: "1px solid " + C.line }}>
                 <button onClick={() => setOpenG((o) => Object.assign({}, o, { [g.id]: !o[g.id] }))} className="text-xs font-medium" style={{ color: C.blue }}>👥 {openG[g.id] ? "ocultar" : "ver"} palpites de todos</button>
-                {openG[g.id] && <div className="mt-2 flex flex-wrap gap-1.5">{players.map((p) => { const gg = (guessesById[p.id] || {})[g.id]; const filled = gg && gg.h !== "" && gg.a !== ""; const sc = hasResult(r) ? scoreOf(gg, r, cfg) : null; const ex = isExact(gg, r); return (<span key={p.id} style={{ background: sc > 0 ? C.green : C.card2, color: sc > 0 ? "#06281c" : C.txt, border: "1px solid " + C.line }} className="text-xs px-2 py-1 rounded-full">{p.name}: {filled ? gg.h + "×" + gg.a : "—"}{ex ? " 🎯" : (sc > 0 ? " ✓" : "")}</span>); })}</div>}
+                {openG[g.id] && <div className="mt-2 flex flex-wrap gap-1.5">{players.map((p) => { const gg = (guessesById[p.id] || {})[g.id]; const filled = gg && gg.h !== "" && gg.a !== ""; const sc = hasResult(r) ? scoreG(gg, r, cfg, g.round) : null; const ex = isExact(gg, r); return (<span key={p.id} style={{ background: sc > 0 ? C.green : C.card2, color: sc > 0 ? "#06281c" : C.txt, border: "1px solid " + C.line }} className="text-xs px-2 py-1 rounded-full">{p.name}: {filled ? gg.h + "×" + gg.a : "—"}{ex ? " 🎯" : (sc > 0 ? " ✓" : "")}</span>); })}</div>}
               </div>
             )}
           </div>
@@ -645,7 +650,7 @@ function AoVivo({ games, results, guessesById, players, cravadas, cfg, isLocked,
   const ms = new Date(focus.dt).getTime() - now; const cr = cravadas.find((c) => c.gameId === focus.id);
   const fmtCd = (m) => { if (m <= 0) return "começando…"; const s = Math.floor(m / 1000), d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), mi = Math.floor((s % 3600) / 60); if (d > 0) return d + "d " + h + "h"; if (h > 0) return h + "h " + mi + "min"; return mi + "min"; };
   const badge = resolved ? { t: "ENCERRADO", bg: C.card2, fg: C.mut } : (started ? { t: "● AO VIVO", bg: C.danger, fg: "#fff" } : { t: "EM " + fmtCd(ms), bg: C.gold, fg: "#2b2100" });
-  const rows = players.map((p) => { const guess = (guessesById[p.id] || {})[focus.id]; const filled = guess && guess.h !== "" && guess.a !== ""; const sc = resolved ? scoreOf(guess, res, cfg) : null; return { p, guess, filled, sc }; }).sort((a, b) => (b.sc || 0) - (a.sc || 0) || a.p.name.localeCompare(b.p.name));
+  const rows = players.map((p) => { const guess = (guessesById[p.id] || {})[focus.id]; const filled = guess && guess.h !== "" && guess.a !== ""; const sc = resolved ? scoreG(guess, res, cfg, focus.round) : null; return { p, guess, filled, sc }; }).sort((a, b) => (b.sc || 0) - (a.sc || 0) || a.p.name.localeCompare(b.p.name));
   const nextUps = sortedAsc.filter((g) => now < new Date(g.dt).getTime() && g.id !== focus.id).slice(0, 3);
   const lastDone = sortedAsc.slice().reverse().filter((g) => hasResult(results[g.id]) && g.id !== focus.id).slice(0, 3);
   return (
@@ -700,7 +705,8 @@ function Config({ cfg, saveCfg, games, renameGame, me }) {
       </div>
       {tab === "pontos" && (
         <div style={{ background: C.card, border: "1px solid " + C.line }} className="rounded-xl p-3">
-          <NumRow k="pExact" lb="Placar exato" color={C.green} /><NumRow k="pDiff" lb="Vencedor + saldo" color={C.green} /><NumRow k="pWin" lb="Só o vencedor / empate" color={C.green} /><NumRow k="cravadaBase" lb="🎯 Valor base da Cravada" color={C.gold} />
+          <NumRow k="pExact" lb="Placar exato" color={C.green} /><NumRow k="pDiff" lb="Vencedor + saldo" color={C.green} /><NumRow k="pWin" lb="Só o vencedor / empate" color={C.green} /><NumRow k="pesoFinal" lb="🔥 Peso da Final e 3º lugar (×)" color={C.gold} /><NumRow k="cravadaBase" lb="🎯 Valor base da Cravada" color={C.gold} />
+          <p className="text-xs mt-1" style={{ color: C.mut }}>Peso ×N multiplica os pontos só da Final e da Disputa de 3º lugar (ex.: ×7 → placar exato vale {(local.pExact || 0) * (local.pesoFinal || 1)} pts). Use 1 para desligar.</p>
           <div className="flex items-center justify-between py-2"><span className="text-sm">Unidade do prêmio</span><input value={local.unit} onChange={(e) => setLocal(Object.assign({}, local, { unit: e.target.value.slice(0, 6) }))} style={{ background: C.bg, border: "1px solid " + C.line, color: C.gold, width: 80 }} className="text-center py-1.5 rounded-lg outline-none font-bold" /></div>
           <button onClick={() => saveCfg(local)} style={{ background: C.green, color: "#06281c" }} className="w-full mt-3 py-2.5 rounded-lg font-semibold active:opacity-80">Salvar regras</button>
         </div>
