@@ -145,15 +145,30 @@ function App() {
   const loadAll = useCallback(async () => {
     if (!sb) { setLoading(false); return; }
     try {
-      const [gR, pR, rR, guR, cvR, cbR, cfR] = await Promise.all([
+      // Lê TODAS as linhas de uma tabela, contornando o teto de 1000 linhas do PostgREST (paginação estável).
+      const fetchAllRows = async (table, orderCols) => {
+        const pageSize = 1000; let from = 0, all = [];
+        for (;;) {
+          let q = sb.from(table).select("*");
+          (orderCols || []).forEach((c) => { q = q.order(c, { ascending: true }); });
+          const { data, error } = await q.range(from, from + pageSize - 1);
+          if (error) throw error;
+          all = all.concat(data || []);
+          if (!data || data.length < pageSize) break;
+          from += pageSize;
+        }
+        return all;
+      };
+      const [gR, pR, rR, cvR, cfR] = await Promise.all([
         sb.from("games").select("*"),
         sb.from("players").select("*"),
         sb.from("results").select("*"),
-        sb.from("guesses").select("*"),
         sb.from("cravadas").select("*"),
-        sb.from("cravada_bets").select("*"),
         sb.from("config").select("*").eq("k", "cfg").maybeSingle(),
       ]);
+      // guesses e cravada_bets podem passar de 1000 linhas → sempre paginar.
+      const guR = { data: await fetchAllRows("guesses", ["player_id", "game_id"]), error: null };
+      const cbR = { data: await fetchAllRows("cravada_bets", ["player_id", "cravada_id"]), error: null };
       const anyErr = gR.error || pR.error || rR.error;
       if (anyErr) { setErr("db:" + anyErr.message); setLoading(false); return; }
       const gv = (gR.data || []).map((g) => ({ id: g.id, group: g.grp, round: g.round, dt: g.dt, home: g.home, away: g.away, venue: g.venue }))
